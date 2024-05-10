@@ -1,0 +1,42 @@
+---
+- name: Check if Kubernetes cluster is already initialized
+  ansible.builtin.stat:
+    path: /etc/kubernetes/admin.conf
+  register: k8s_cluster_initialized
+  become: true
+
+- name: Init kubeadm
+  command: "kubeadm init --{{ item.key }}={{ item.value }}"
+  loop: "{{ kubeadm_init_options | dict2items }}"
+  when: k8s_cluster_initialized.stat.exists == false
+
+- name: Create kube config directory
+  ansible.builtin.file:
+    path: "{{ ansible_env.HOME }}/.kube"
+    state: directory
+
+- name: Copy admin.conf to user's kube config
+  ansible.builtin.copy:
+    src: /etc/kubernetes/admin.conf
+    dest: "{{ ansible_env.HOME }}/.kube/config"
+    remote_src: yes
+    owner: "{{ ansible_env.USER }}"
+    group: "{{ ansible_env.USER }}"
+    mode: '0644'
+  become: true
+
+- name: Retrieve Kubernetes join token
+  command: kubeadm token create --print-join-command
+  register: kubernetes_join_command_result
+  changed_when: false
+
+- name: Set the kubeadm join command for worker nodes.
+  set_fact:
+    kubernetes_join_command: "{{ kubernetes_join_command_result.stdout }}"
+  when: 
+    - kubernetes_join_command_result.stdout is defined
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  with_items: "{{ groups['all'] }}"
+  when: hostvars[item].node_role == 'worker'
+

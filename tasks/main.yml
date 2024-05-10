@@ -1,0 +1,11 @@
+---
+- name: Include prerequisites
+  include_tasks: install_prerequisites.yml
+
+- name: Include master installation tasks
+  include_tasks: install_master.yml
+  when: node_role == "master"
+
+- name: Include worker installation tasks
+  include_tasks: install_worker.yml
+  when: node_role == "worker"
