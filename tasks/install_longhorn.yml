@@ -1,0 +1,4 @@
+---
+# Apply the Longhorn deployment manifest
+- name: Retrieve Kubernetes join token
+  command: kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.6.1/deploy/longhorn.yaml

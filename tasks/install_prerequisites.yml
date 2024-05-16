@@ -1,10 +1,10 @@
 ---
 - name: Set facts for the role
   set_fact:
-    swap_disable_cmd: swapoff -a
-    fstab_path: /etc/fstab
-    selinux_config_path: /etc/selinux/config
+    # Path to the Kubernetes configuration file
     k8s_conf_path: /etc/modules-load.d/k8s.conf
+    
+    # Sysctl parameters to be configured for Kubernetes networking
     sysctl_params:
       - name: 'net.bridge.bridge-nf-call-iptables'
         value: 1
@@ -12,9 +12,12 @@
         value: 1
       - name: 'net.ipv4.ip_forward'
         value: 1
+    
+    # URLs for CRI-O repository files
     cri_o_1_repo_url: "https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/CentOS_8/devel:kubic:libcontainers:stable.repo"
     cri_o_2_repo_url: "https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:{{ VERSION }}/CentOS_8/devel:kubic:libcontainers:stable:cri-o:{{ VERSION }}.repo"
 
+# Ensure the Firewalld service is not enabled
 - name: Disable Firewalld service
   ansible.builtin.systemd:
     name: firewalld
@@ -22,28 +25,35 @@
     state: stopped
   become: true
 
+# Disable all swap spaces
 - name: Disable swap if present
-  command: "{{ swap_disable_cmd }}"
+  command: swapoff -a
   ignore_errors: yes
   changed_when: false
+  become: true
 
 - name: Comment swap entry in fstab
   lineinfile:
-    dest: "{{ fstab_path }}"
+    dest: /etc/fstab
     regexp: 'swap'
     state: absent
+  become: true
 
+ # Set SELinux mode to permissive
 - name: Set SELinux to permissive mode
   ansible.builtin.selinux:
     state: permissive
     policy: targeted
+  become: true
 
 - name: Update SELinux config file
   ansible.builtin.lineinfile:
-    path: "{{ selinux_config_path }}"
+    path: /etc/selinux/config
     regexp: '^SELINUX=enforcing$'
     line: 'SELINUX=permissive'
+  become: true
 
+# Create Kubernetes modules configuration file
 - name: Configure modules-load.d/k8s.conf
   ansible.builtin.blockinfile:
     path: "{{ k8s_conf_path }}"
@@ -51,10 +61,13 @@
     block: |
       overlay
       br_netfilter
+  become: true
 
+# Load the specified kernel module
 - name: Load kernel modules
   ansible.builtin.modprobe:
     name: "{{ item }}"
+  become: true
   loop:
     - overlay
     - br_netfilter
@@ -65,12 +78,36 @@
     value: "{{ item.value }}"
     sysctl_set: yes
     state: present
+  become: true
   loop: "{{ sysctl_params }}"
 
-- name: Apply sysctl params without reboot
+# Apply all sysctl parameters immediately
+- name: Apply sysctl params
   ansible.builtin.command:
     cmd: sysctl --system
+  become: true
 
+#================================================================================================================================
+# Install Longhorn requierements
+- name: Install Longhorn requierements
+  block:
+    # Install the iSCSI initiator utilities package
+    - name: Install iSCSI initiator utilities
+      ansible.builtin.dnf:
+        name: "iscsi-initiator-utils"
+        state: present
+      become: true
+
+    # Ensure iscsid is enabled and started
+    - name: Enable and start iscsid service
+      ansible.builtin.systemd:
+        name: iscsid
+        enabled: yes
+        state: started
+      become: true
+  when: (LONGHORN | default(false))
+
+#================================================================================================================================
 - name: Add Kubernetes repositories
   ansible.builtin.get_url:
     url: "{{ item }}"
@@ -86,18 +123,13 @@
     state: present
   become: true
 
+# Ensure Cri-O is enabled and started
 - name: Enable and start Cri-O service
   ansible.builtin.systemd:
     name: crio
     enabled: yes
     state: started
   become: true
-
-- name: Check Cri-O service status
-  ansible.builtin.systemd:
-    name: crio
-    state: started
-  register: crio_status
 
 - name: Configure Kubernetes repository
   ansible.builtin.blockinfile:
@@ -111,6 +143,7 @@
       gpgcheck=1
       gpgkey=https://pkgs.k8s.io/core:/stable:/v{{ VERSION }}/rpm/repodata/repomd.xml.key
       exclude=kubelet kubeadm kubectl
+  become: true
 
 - name: Install kubelet, kubeadm, kubectl
   ansible.builtin.dnf:
@@ -122,6 +155,7 @@
     disable_excludes: kubernetes
   become: true
 
+# Ensure kubelet is enabled and started
 - name: Enable and start kubelet service
   ansible.builtin.systemd:
     name: kubelet

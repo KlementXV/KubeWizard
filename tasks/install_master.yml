@@ -5,6 +5,7 @@
   register: k8s_cluster_initialized
   become: true
 
+# Initialize the cluster if it is not already initialized
 - name: Init kubeadm
   command: "kubeadm init --{{ item.key }}={{ item.value }}"
   loop: "{{ kubeadm_init_options | dict2items }}"
@@ -23,20 +24,18 @@
     owner: "{{ ansible_env.USER }}"
     group: "{{ ansible_env.USER }}"
     mode: '0644'
-  become: true
 
 - name: Retrieve Kubernetes join token
-  command: kubeadm token create --print-join-command
-  register: kubernetes_join_command_result
-  changed_when: false
+  command: kubeadm token create --print-join-command  # Command to create and print the join command for worker nodes
+  register: kubernetes_join_command_result  # Register the output
+  changed_when: false 
 
 - name: Set the kubeadm join command for worker nodes.
   set_fact:
-    kubernetes_join_command: "{{ kubernetes_join_command_result.stdout }}"
+    kubernetes_join_command: "{{ kubernetes_join_command_result.stdout }}"  # Set a fact with the join command
   when: 
-    - kubernetes_join_command_result.stdout is defined
-  delegate_to: "{{ item }}"
-  delegate_facts: true
-  with_items: "{{ groups['all'] }}"
-  when: hostvars[item].node_role == 'worker'
-
+    - kubernetes_join_command_result.stdout is defined  # Ensure the command output is defined
+  delegate_to: "{{ item }}"  # Delegate this task to the worker nodes
+  delegate_facts: true  # Ensure the fact is set on the delegated hosts
+  with_items: "{{ groups['all'] }}"  # Loop through all hosts
+  when: hostvars[item].node_role == 'worker'  # Only run for worker nodes

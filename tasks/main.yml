@@ -1,11 +1,46 @@
 ---
+# Include prerequisite tasks, common for all nodes
 - name: Include prerequisites
   include_tasks: install_prerequisites.yml
 
+# Include tasks specific to master nodes
 - name: Include master installation tasks
   include_tasks: install_master.yml
   when: node_role == "master"
 
+# Include tasks specific to worker nodes
 - name: Include worker installation tasks
   include_tasks: install_worker.yml
   when: node_role == "worker"
+
+# Include Calico and Longhorn installation tasks on one master node
+- name: Include Calico and Longhorn installation tasks on one master
+  block:
+    # Check if tasks have already been executed on a master node
+    - name: Check if tasks have already been executed on a master node
+      set_fact:
+        tasks_executed_on_master: "{{ tasks_executed_on_master | default(false) }}"
+      when: not tasks_executed_on_master
+
+    #================================================================================================================================
+
+    # Include Calico installation tasks if required
+    - name: Include Calico installation tasks
+      include_tasks: install_calico.yml
+      when: (CALICO | default(false)) and not tasks_executed_on_master
+
+    # Include Longhorn installation tasks if required
+    - name: Include Longhorn installation tasks
+      include_tasks: install_longhorn.yml
+      when: (LONGHORN | default(false)) and not tasks_executed_on_master
+
+    # Additional installation tasks can be added here
+    # Use the 'include_tasks' directive to include other installation tasks
+
+    #================================================================================================================================
+
+    # Set flag indicating tasks have been executed on a master node
+    - name: Set flag indicating tasks have been executed on a master node
+      set_fact:
+        tasks_executed_on_master: true
+  when: node_role == "master"
