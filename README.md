@@ -1,3 +1,5 @@
+![KubeWizard Logo](https://github.com/KlementXV/KubeWizard/blob/main/logo.jpg?raw=true)
+
 # KubeWizard
 This Ansible role is designed to **install Kubernetes** using KubeWizard on specified hosts.
 
