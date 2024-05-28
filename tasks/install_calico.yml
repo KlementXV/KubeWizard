@@ -14,3 +14,11 @@
   until: result.rc == 0
   retries: 5
   delay: 30
+
+# Wait for Calico pods to be in the running state
+- name: Wait for Calico pods to be in running state
+  command: kubectl wait --for=condition=Ready pods --all -n calico-apiserver --timeout=300s
+  register: result
+  until: result.rc == 0
+  retries: 5
+  delay: 30

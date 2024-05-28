@@ -1,4 +1,3 @@
----
 # Include prerequisite tasks, common for all nodes
 - name: Include prerequisites
   include_tasks: install_prerequisites.yml
@@ -13,14 +12,31 @@
   include_tasks: install_worker.yml
   when: node_role == "worker"
 
+# Ensure the variable is defined before using it
+- name: Set default value for tasks_executed_on_master
+  set_fact:
+    tasks_executed_on_master: false
+  when: node_role == "master"
+
 # Include Calico and Longhorn installation tasks on one master node
 - name: Include Calico and Longhorn installation tasks on one master
   block:
+    # Restart CoreDNS
+    - name: Restart CoreDNS
+      command: kubectl delete pod -n kube-system -l k8s-app=kube-dns
+
     # Check if tasks have already been executed on a master node
     - name: Check if tasks have already been executed on a master node
       set_fact:
         tasks_executed_on_master: "{{ tasks_executed_on_master | default(false) }}"
       when: not tasks_executed_on_master
+
+    - name: Wait for all nodes to be in Ready state
+      command: kubectl wait --for=condition=Ready nodes --all --timeout=300s
+      register: result
+      until: result.rc == 0
+      retries: 5
+      delay: 30
 
     #================================================================================================================================
 
@@ -43,4 +59,4 @@
     - name: Set flag indicating tasks have been executed on a master node
       set_fact:
         tasks_executed_on_master: true
-  when: node_role == "master"
+  when: node_role == "master" and not tasks_executed_on_master

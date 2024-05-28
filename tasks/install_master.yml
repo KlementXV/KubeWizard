@@ -10,6 +10,7 @@
   command: "kubeadm init --{{ item.key }}={{ item.value }}"
   loop: "{{ kubeadm_init_options | dict2items }}"
   when: k8s_cluster_initialized.stat.exists == false
+  become: true
 
 - name: Create kube config directory
   ansible.builtin.file:
@@ -19,11 +20,12 @@
 - name: Copy admin.conf to user's kube config
   ansible.builtin.copy:
     src: /etc/kubernetes/admin.conf
-    dest: "{{ ansible_env.HOME }}/.kube/config"
+    dest: "{{ user_home }}/.kube/config"
     remote_src: yes
-    owner: "{{ ansible_env.USER }}"
-    group: "{{ ansible_env.USER }}"
+    owner: "{{ user_name }}"
+    group: "{{ user_name }}"
     mode: '0644'
+  become: true
 
 - name: Retrieve Kubernetes join token
   command: kubeadm token create --print-join-command  # Command to create and print the join command for worker nodes

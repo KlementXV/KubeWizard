@@ -17,6 +17,10 @@
     cri_o_1_repo_url: "https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable/CentOS_8/devel:kubic:libcontainers:stable.repo"
     cri_o_2_repo_url: "https://download.opensuse.org/repositories/devel:kubic:libcontainers:stable:cri-o:{{ VERSION }}/CentOS_8/devel:kubic:libcontainers:stable:cri-o:{{ VERSION }}.repo"
 
+    # Set user home and user name variables
+    user_home: "{{ ansible_env.HOME }}"
+    user_name: "{{ ansible_env.USER }}"
+
 # Ensure the Firewalld service is not enabled
 - name: Disable Firewalld service
   ansible.builtin.systemd:

@@ -4,3 +4,4 @@
   ansible.builtin.shell:
     cmd: "{{ kubernetes_join_command }}"
     creates: /etc/kubernetes/kubelet.conf
+  become: true

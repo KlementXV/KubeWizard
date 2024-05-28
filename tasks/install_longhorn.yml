@@ -1,4 +1,12 @@
 ---
 # Apply the Longhorn deployment manifest
-- name: Retrieve Kubernetes join token
+- name: Install Longhorn
   command: kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.6.1/deploy/longhorn.yaml
+
+# Wait for Calico pods to be in the running state
+- name: Wait for Calico pods to be in running state
+  command: kubectl wait --for=condition=Ready pods --all -n longhorn-system --timeout=300s
+  register: result
+  until: result.rc == 0
+  retries: 5
+  delay: 30
