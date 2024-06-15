@@ -1,0 +1,22 @@
+---
+- name: Vérifier si Helm est installé
+  command: helm version --short
+  register: helm_version_output
+  ignore_errors: yes
+  when: inventory_hostname == groups['kube_control_plane'][0]
+
+- name: Ensure git is installed
+  dnf:
+    name: git
+    state: present
+  become: true
+  when: inventory_hostname == groups['kube_control_plane'][0]
+
+- name: Install Helm
+  shell: curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc != 0
+  become: true
+  args:
+    executable: /bin/bash
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/usr/local/bin"

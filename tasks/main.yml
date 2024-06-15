@@ -1,3 +1,4 @@
+---
 # Include prerequisite tasks, common for all nodes
 - name: Include prerequisites
   include_tasks: install_prerequisites.yml
@@ -5,25 +6,30 @@
 # Include tasks specific to master nodes
 - name: Include master installation tasks
   include_tasks: install_master.yml
-  when: node_role == "master"
+  when: "'kube_control_plane' in group_names"
 
 # Include tasks specific to worker nodes
 - name: Include worker installation tasks
   include_tasks: install_worker.yml
-  when: node_role == "worker"
+  when: "'kube_node' in group_names"
 
 # Ensure the variable is defined before using it
 - name: Set default value for tasks_executed_on_master
   set_fact:
     tasks_executed_on_master: false
-  when: node_role == "master"
+  when: "'kube_control_plane' in group_names"
 
-# Include Calico and Longhorn installation tasks on one master node
-- name: Include Calico and Longhorn installation tasks on one master
+- name: Install Addons
   block:
+
+    - name: Pause de 20 secondes
+      pause:
+        seconds: 20
+
     # Restart CoreDNS
     - name: Restart CoreDNS
       command: kubectl delete pod -n kube-system -l k8s-app=kube-dns
+      when: inventory_hostname == groups['kube_control_plane'][0]
 
     # Check if tasks have already been executed on a master node
     - name: Check if tasks have already been executed on a master node
@@ -38,25 +44,26 @@
       retries: 5
       delay: 30
 
-    #================================================================================================================================
+    # Include Helm installation tasks if required
+    - name: Include Helm installation tasks
+      include_tasks: install_helm.yml
+      when: (helm_enabled | default(false)) and not tasks_executed_on_master
 
     # Include Calico installation tasks if required
     - name: Include Calico installation tasks
       include_tasks: install_calico.yml
-      when: (CALICO | default(false)) and not tasks_executed_on_master
+      when: (calico_enabled | default(false)) and not tasks_executed_on_master
 
     # Include Longhorn installation tasks if required
     - name: Include Longhorn installation tasks
       include_tasks: install_longhorn.yml
-      when: (LONGHORN | default(false)) and not tasks_executed_on_master
+      when: (longhorn_enabled | default(false)) and not tasks_executed_on_master
 
     # Additional installation tasks can be added here
     # Use the 'include_tasks' directive to include other installation tasks
-
-    #================================================================================================================================
 
     # Set flag indicating tasks have been executed on a master node
     - name: Set flag indicating tasks have been executed on a master node
       set_fact:
         tasks_executed_on_master: true
-  when: node_role == "master" and not tasks_executed_on_master
+  when: "inventory_hostname == groups['kube_control_plane'][0] and not tasks_executed_on_master"

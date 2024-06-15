@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  creationTimestamp: null
+  name: kube-vip
+  namespace: kube-system
+spec:
+  containers:
+  - args:
+    - manager
+    env:
+    - name: vip_arp
+      value: "{{ kube_vip_arp_enabled | lower }}"
+    - name: port
+      value: "6443"
+    - name: vip_nodename
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+    - name: vip_interface
+      value: "{{ kube_vip_interface }}"
+    - name: vip_cidr
+      value: "{{ kube_vip_cidr }}"
+    - name: dns_mode
+      value: "{{ kube_vip_dns_mode }}"
+    - name: cp_enable
+      value: "{{ kube_vip_controlplane_enabled | lower }}"
+    - name: cp_namespace
+      value: kube-system
+    - name: svc_enable
+      value: "{{ kube_vip_services_enabled | lower }}"
+    - name: svc_leasename
+      value: "{{ kube_vip_svc_leasename }}"
+    - name: vip_leaderelection
+      value: "{{ kube_vip_leader_election_enabled | lower }}"
+    - name: vip_leasename
+      value: "{{ kube_vip_leasename }}"
+    - name: vip_leaseduration
+      value: "{{ kube_vip_leaseduration }}"
+    - name: vip_renewdeadline
+      value: "{{ kube_vip_renewdeadline }}"
+    - name: vip_retryperiod
+      value: "{{ kube_vip_retryperiod }}"
+    - name: address
+      value: "{{ kube_vip_address }}"
+    - name: prometheus_server
+      value: :2112
+    image: "{{ kube_vip_image_repo }}:{{ kube_vip_image_tag }}"
+    imagePullPolicy: IfNotPresent
+    name: kube-vip
+    resources: {}
+    securityContext:
+      capabilities:
+        add:
+        - NET_ADMIN
+        - NET_RAW
+    volumeMounts:
+    - mountPath: /etc/kubernetes/admin.conf
+      name: kubeconfig
+  hostAliases:
+  - hostnames:
+    - kubernetes
+    ip: 127.0.0.1
+  hostNetwork: true
+  volumes:
+  - hostPath:
+      path: /etc/kubernetes/admin.conf
+    name: kubeconfig
+status: {}

@@ -1,24 +1,27 @@
 ---
-# Install the Tigera Calico operator and custom resource definitions
-- name: Install the Tigera Calico operator and custom resource definitions
-  command: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/tigera-operator.yaml
+- name: Vérifier si Helm est installé
+  ansible.builtin.command: "helm version --short"
+  register: helm_version_output
+  when: inventory_hostname == groups['kube_control_plane'][0]
 
-# Install Calico by creating the necessary custom resource
-- name: Install Calico by creating the necessary custom resource
-  command: kubectl create -f https://raw.githubusercontent.com/projectcalico/calico/v3.28.0/manifests/custom-resources.yaml
+- name: Afficher un message d'erreur si Helm n'est pas installé
+  ansible.builtin.fail:
+    msg: "Helm n'est pas installé sur {{ inventory_hostname }}"
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc != 0
+
+- name: Install calico Helm Repo
+  command: helm repo add projectcalico {{ calico_repo }}
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc == 0
+
+- name: Install calico
+  command: helm install calico projectcalico/tigera-operator --version {{ calico_version }} --create-namespace --namespace {{ calico_namespace }}
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc == 0
 
 # Wait for Calico pods to be in the running state
 - name: Wait for Calico pods to be in running state
-  command: kubectl wait --for=condition=Ready pods --all -n calico-system --timeout=300s
+  command: kubectl wait --for=condition=Ready pods --all -n {{ calico_namespace }} --timeout=300s
   register: result
   until: result.rc == 0
   retries: 5
   delay: 30
-
-# Wait for Calico pods to be in the running state
-- name: Wait for Calico pods to be in running state
-  command: kubectl wait --for=condition=Ready pods --all -n calico-apiserver --timeout=300s
-  register: result
-  until: result.rc == 0
-  retries: 5
-  delay: 30
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc == 0

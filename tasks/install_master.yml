@@ -1,43 +1,98 @@
----
-- name: Check if Kubernetes cluster is already initialized
+# Vérifie si le cluster Kubernetes est déjà initialisé sur chaque nœud de contrôle
+- name: Check if Kubernetes cluster is already initialized on each control plane node
   ansible.builtin.stat:
     path: /etc/kubernetes/admin.conf
   register: k8s_cluster_initialized
   become: true
 
-# Initialize the cluster if it is not already initialized
-- name: Init kubeadm
-  command: "kubeadm init --{{ item.key }}={{ item.value }}"
-  loop: "{{ kubeadm_init_options | dict2items }}"
-  when: k8s_cluster_initialized.stat.exists == false
+# Déploie le template de configuration Kube-vip si le cluster a plus d'un nœud de contrôle et que Kube-vip est activé
+- name: Deploy Kube-vip configuration template
+  template:
+    src: kube-vip.yaml.j2
+    dest: /etc/kubernetes/manifests/kube-vip.yaml
   become: true
-
-- name: Create kube config directory
-  ansible.builtin.file:
-    path: "{{ ansible_env.HOME }}/.kube"
-    state: directory
-
-- name: Copy admin.conf to user's kube config
-  ansible.builtin.copy:
-    src: /etc/kubernetes/admin.conf
-    dest: "{{ user_home }}/.kube/config"
-    remote_src: yes
-    owner: "{{ user_name }}"
-    group: "{{ user_name }}"
-    mode: '0644'
-  become: true
-
-- name: Retrieve Kubernetes join token
-  command: kubeadm token create --print-join-command  # Command to create and print the join command for worker nodes
-  register: kubernetes_join_command_result  # Register the output
-  changed_when: false 
-
-- name: Set the kubeadm join command for worker nodes.
-  set_fact:
-    kubernetes_join_command: "{{ kubernetes_join_command_result.stdout }}"  # Set a fact with the join command
   when: 
-    - kubernetes_join_command_result.stdout is defined  # Ensure the command output is defined
-  delegate_to: "{{ item }}"  # Delegate this task to the worker nodes
-  delegate_facts: true  # Ensure the fact is set on the delegated hosts
-  with_items: "{{ groups['all'] }}"  # Loop through all hosts
-  when: hostvars[item].node_role == 'worker'  # Only run for worker nodes
+    - groups['kube_control_plane'] | length >= 2
+    - kube_vip_enabled | default(false)
+
+# Génère la commande kubeadm init avec les options spécifiées
+- name: Build kubeadm init command with options
+  set_fact:
+    kubeadm_init_cmd: >-
+      kubeadm init
+      {%- for key, value in kubeadm_init_options.items() %}
+      --{{ key }}={{ value }}
+      {%- endfor %}
+
+# Initialise kubeadm sur le premier maître si le cluster n'est pas encore initialisé
+- name: Init kubeadm on the first master
+  command: "{{ kubeadm_init_cmd }}"
+  when:
+    - not k8s_cluster_initialized.stat.exists
+    - inventory_hostname == groups['kube_control_plane'][0]
+  register: kubeadm_init_result
+  become: true
+
+# Configure kube config sur le premier maître
+- name: Setup kube config on the first master
+  block:
+    - name: Create kube config directory
+      ansible.builtin.file:
+        path: "{{ ansible_env.HOME }}/.kube"
+        state: directory
+
+    - name: Copy admin.conf to user's kube config
+      ansible.builtin.copy:
+        src: /etc/kubernetes/admin.conf
+        dest: "{{ ansible_env.HOME }}/.kube/config"
+        remote_src: yes
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        mode: '0644'
+      become: true
+
+    - name: Retrieve Kubernetes certificate key
+      command: "kubeadm init phase upload-certs --upload-certs"
+      register: certificate_key_result
+      become: true
+
+    - name: Retrieve Kubernetes join command for control plane
+      command: "kubeadm token create --print-join-command --certificate-key {{ certificate_key_result.stdout_lines[-1] }}"
+      register: kubernetes_join_command_cp_result
+
+    - name: Set the kubeadm join command for control plane nodes except the first one
+      set_fact:
+        kubernetes_join_command_cp: "{{ kubernetes_join_command_cp_result.stdout }}"
+      become: true
+  when: inventory_hostname == groups['kube_control_plane'][0]
+
+# Partage la commande join pour les nœuds de contrôle (sauf le premier)
+- name: Share the kubeadm join command for control plane nodes except the first one
+  set_fact:
+    kubernetes_join_command_cp: "{{ hostvars[groups['kube_control_plane'][0]].kubernetes_join_command_cp }}"
+  when: inventory_hostname != groups['kube_control_plane'][0]
+
+# Joint les autres nœuds de contrôle au cluster s'ils ne sont pas déjà initialisés mais que le premier nœud de contrôle l'est
+- name: Join other master nodes to the cluster
+  command: "{{ kubernetes_join_command_cp }} --control-plane --certificate-key {{ hostvars[groups['kube_control_plane'][0]].certificate_key_result.stdout_lines[-1] }}"
+  when:
+    - not k8s_cluster_initialized.stat.exists
+    - hostvars[groups['kube_control_plane'][0]].k8s_cluster_initialized.stat.exists
+    - inventory_hostname != groups['kube_control_plane'][0]
+  become: true
+
+# Récupère le jeton join pour les nœuds de travail
+- name: Retrieve Kubernetes join token for worker nodes
+  command: kubeadm token create --print-join-command
+  register: kubernetes_join_command_result
+  changed_when: false
+  when: inventory_hostname == groups['kube_control_plane'][0]
+
+# Définit la commande join pour les nœuds de travail et la délègue à chaque nœud de travail
+- name: Set the kubeadm join command for worker nodes
+  set_fact:
+    kubernetes_join_command: "{{ kubernetes_join_command_result.stdout }}"
+  delegate_to: "{{ item }}"
+  delegate_facts: true
+  with_items: "{{ groups['kube_node'] }}"
+  when: kubernetes_join_command_result.stdout is defined

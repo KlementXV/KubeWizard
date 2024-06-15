@@ -1,12 +1,27 @@
 ---
-# Apply the Longhorn deployment manifest
+- name: Vérifier si Helm est installé
+  ansible.builtin.command: "helm version --short"
+  register: helm_version_output
+  when: inventory_hostname == groups['kube_control_plane'][0]
+
+- name: Afficher un message d'erreur si Helm n'est pas installé
+  ansible.builtin.fail:
+    msg: "Helm n'est pas installé sur {{ inventory_hostname }}"
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc != 0
+
+- name: Install Longhorn Helm Repo
+  command: helm repo add longhorn {{ longhorn_repo }}
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc == 0
+
 - name: Install Longhorn
-  command: kubectl apply -f https://raw.githubusercontent.com/longhorn/longhorn/v1.6.1/deploy/longhorn.yaml
+  command: helm install longhorn longhorn/longhorn --namespace {{ longhorn_namespace }} --create-namespace --version {{ longhorn_version }}
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc == 0
 
 # Wait for Calico pods to be in the running state
 - name: Wait for Calico pods to be in running state
-  command: kubectl wait --for=condition=Ready pods --all -n longhorn-system --timeout=300s
+  command: kubectl wait --for=condition=Ready pods --all -n {{ longhorn_namespace }} --timeout=300s
   register: result
   until: result.rc == 0
   retries: 5
   delay: 30
+  when: inventory_hostname == groups['kube_control_plane'][0] and helm_version_output.rc == 0
